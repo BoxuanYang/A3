@@ -1,0 +1,6 @@
+cd "Program Files"
+cd mosquitto
+
+.\mosquitto -c .\mosquitto.conf -v
+
+ 
