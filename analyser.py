@@ -1,20 +1,18 @@
 import paho.mqtt.client as mqtt
 import sys
 import time
+import os
 #-----------------------------------Global variables---------------------------------
 host_name = "localhost"
 
-client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+analyser = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 # a dictionary which stores the records of received messages, indexed by topic string
 records = {}
-
-# a boolean value to indicate whether we have finished receiving from all topics
-finish_receiving = False
 #-----------------------------------Global variables---------------------------------
+
 def on_publish(client, userdata, mid, reason_code, properties):
-    # reason_code and properties will only be present in MQTTv5. It's always unset in MQTTv3
-    print("Published : ", userdata)
+    return
 
 def on_message(client, userdata, msg):
     topic = msg.topic
@@ -23,8 +21,8 @@ def on_message(client, userdata, msg):
 
     records[topic].append((content, timee))
     print(topic + ": " + content + ". Received time: " + str(timee))
-    print("Updated records:")
-    print(records)
+    #print("Updated records:")
+    #print(records)
     print()
 
 
@@ -42,6 +40,9 @@ def on_connect(client, userdata, flags, reason_code, properties):
     # reconnect then subscriptions will be renewed.
     #client.subscribe("$SYS/#")
 
+def on_disconnect(client, userdata, rc, a, b):
+    print("Disconnected")
+
 """
 The analyser will be given 4 parameters: instancecount, publisher_qos, delay, publisher_qos.
 
@@ -54,50 +55,75 @@ instancecount = int(sys.argv[1])
 print("instance count: ", instancecount)
 
 publisher_qos = int(sys.argv[2])
-print("publisher_qos: ", publisher_qos)
+print("publisher_qos:  ", publisher_qos)
 
 delay         = int(sys.argv[3])
-print("delay: ", delay)
+print("delay:          ", delay)
 
 analyser_qos  = int(sys.argv[4])
-print("analyser_qos: ", analyser_qos)
+print("analyser_qos:   ", analyser_qos)
 
 # setup the callback function
-client.on_publish=on_publish
-client.on_connect=on_connect
-client.on_message=on_message
-client.on_subscribe=on_subscribe
+analyser.on_publish=on_publish
+analyser.on_connect=on_connect
+analyser.on_message=on_message
+analyser.on_subscribe=on_subscribe
+analyser.on_disconnect=on_disconnect
     
 # connect to broker
-client.connect(host_name, 1883, 60)
+analyser.connect(host_name, 1883, 60)
 
-client.loop_start()
+analyser.loop_start()
 
 # First we subscribe to all topics
 for i in range(1, instancecount + 1):
     topic = f"counter/{i}/{publisher_qos}/{delay}"
-    print("subscrived to topic: ", topic)
-    client.subscribe(topic)
+    print("subscribed to topic: ", topic)
+    analyser.subscribe(topic, analyser_qos)
 
     if topic not in records:
         records[topic] = []
 
 # then, publish to request/qos, request/delay and request/instancecount topics
-client.publish("request/qos", publisher_qos, analyser_qos)
-client.publish("request/delay", delay, analyser_qos)
-client.publish("request/instancecount", instancecount, analyser_qos)
+analyser.publish("request/qos", publisher_qos, analyser_qos)
+analyser.publish("request/delay", delay, analyser_qos)
+analyser.publish("request/instancecount", instancecount, analyser_qos)
 
 
 
 # then, listen to the specified counter topics on the broker and take measurements
 
-    
 
-client.loop_start()
+analyser.loop_start()
 
-time.sleep(70)
+time.sleep(15)
 
-    
+analyser.loop_stop()
+analyser.disconnect()
+
+directory = "instancecount-" + str(instancecount) + "-qos-"+str(publisher_qos)+"-delay-"+str(delay)
+
+ 
+"""
+Write the data we received to local file
+"""
+for topic in records:
+    file_name = "counter-" + topic[8:9] + "-" + topic[10:11]+"-"+topic[12:13]+".txt"
+
+    file_path = os.path.join(directory, file_name)
+    print()
+    print("Begin writing to: " + directory + "/" + file_name)
+    print("Received " + str(len(records[topic])) + " in total")
+
+    with open(file_path, 'w') as fp:
+        for counter, timee in records[topic]:
+            fp.write(str(counter) + "\t" + str(timee) + "\n")
+
+print("Finish writing to: " + directory)  
+exit()
+
+
+
 
     
 

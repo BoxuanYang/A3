@@ -5,16 +5,7 @@ import time
 host_name = "localhost"
 
 # the id of the publisher, specified by the command line argument
-instance_id = -1
-
-# the number of publishers that should be active, specified by analyser
-instance_count = int(sys.argv[1])
-
-# the qos level from 0 to 2
-qos = 0
-
-# the delay level
-delay = 0
+instance_id = None
 
 # the dictionary which stores the qos and delay level of the publisher
 # specified by the broker
@@ -23,10 +14,12 @@ settings = {"request/qos": None, "request/delay": None, "request/instancecount":
 # the publisher MQTT client
 publisher = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
+finish_send = False
+
 #-----------------------------------Global variables---------------------------------
 def on_publish(client, userdata, mid, reason_code, properties):
     # reason_code and properties will only be present in MQTTv5. It's always unset in MQTTv3
-    # print("Published: ", userdata)
+    print("Published: ", userdata)
     return
 
 def on_subscribe(client, userdata, mid, reason_code_list, properties):
@@ -39,80 +32,98 @@ def on_subscribe(client, userdata, mid, reason_code_list, properties):
     
 def on_connect(client, userdata, flags, reason_code, properties):
     print(f"Connected with result code {reason_code}")
+    return
 
 def on_message(client, userdata, msg):
     topic = msg.topic
     payload = msg.payload.decode('utf-8')
 
-    print("Received topic: " + msg.topic + ": " + payload)
+    print("Received topic: " + msg.topic + ". Payload: " + payload)
 
     if topic == "request/instancecount":
-        global instance_count
-        instance_count= int(payload)
-
-        settings["request/instancecount"] = instance_count
+        settings[topic] = int(payload)
         check_and_publish_all_messages()
     
     elif topic == "request/qos":
-        global qos 
-        qos = int(payload)
-
-        settings[topic] = payload
+        settings[topic] = int(payload)
         check_and_publish_all_messages()
+
     elif topic == "request/delay":
-        global delay 
-        delay = int(payload)
-        
-        settings[topic] = payload
+        settings[topic] = int(payload)
         check_and_publish_all_messages()
 
     return
+
+def on_disconnect(client, userdata, rc, a, b):
+    return
+
+
 
 
 def check_and_publish_all_messages():
     """
     Perform a check, if 
     """
-    if all(value is not None for value in settings.values()):
+    all_settings_set = True
+    for setting in settings:
+        if settings[setting] == None:
+            all_settings_set = False
+            break
+
+
+    if all_settings_set == True:
         publish_all_messages(settings)
-        # 处理完之后清空消息
-        for key in settings:
-            settings[key] = None
+        
+
     return
 
 def publish_all_messages(messages):
     # keep publishing the counter for 1 minute, if the
     # instance_id <= 
-    if instance_id > instance_count:
+    if instance_id > settings["request/instancecount"]:
         return
-
-    print("Publishing all mesages for publisher-" + str(instance_id))
-    counter = 0
-
-    topic = f"counter/{instance_id}/{qos}/{delay}"
-
-    start = time.time()
-
     
+
+    qos            = settings["request/qos"]
+    delay          = settings["request/delay"]
+    instance_count = settings["request/instancecount"]
+    
+    
+
+    print("Publishing all mesages for publisher-" + str(instance_id)
+          + " with qos:" + str(qos)
+          + ", delay: " + str(delay)
+          + " instancount: " + str(instance_count))
+    
+    counter = 0
+    topic = f"counter/{instance_id}/{qos}/{delay}"
+    start = time.time()
+  
     print("Should publish to:", topic)
     
-
-    while time.time() - start < 20:
-        print("publish " + str(counter) + " from publisher-" + str(instance_id))
-        publisher.publish(topic, counter, qos)
+    while time.time() - start < 10:
+        
+        ret = publisher.publish(topic, counter, qos)
+        print("publish " + str(counter) + " from publisher-" + str(instance_id) + " to topic: " + topic)
+        #print(ret)
         counter += 1
-        time.sleep(delay)
+        time.sleep(delay / 1000)
     
     print()
     print("------------------------------------------------")
-    print("Finished sending for publisher-" + str(instance_id) + ". Sent " + str(counter) + " in total.")
-    print("------------------------------------------------")
+    print("Finished sending for publisher-" + str(instance_id) + ". Published " + str(counter) + " to topic: " + topic + " in total.")
+    
     print()
 
     for key in settings:
         settings[key] = None
 
-    
+    print("Setting from publisher-" + str(instance_id))
+    print(settings)
+    print("------------------------------------------------")
+
+    global finish_send
+    finish_send = True
     
     
 
@@ -127,6 +138,7 @@ publisher.on_connect=on_connect
 publisher.on_publish=on_publish
 publisher.on_subscribe=on_subscribe
 publisher.on_message=on_message
+publisher.on_disconnect=on_disconnect
 
 # connect to the broker
 publisher.connect(host_name, 1883, 60)
@@ -134,14 +146,14 @@ publisher.connect(host_name, 1883, 60)
 publisher.loop_start()
     
 # The publisher first subscribe to the following topics
-publisher.subscribe("request/qos")
-publisher.subscribe("request/delay")
-publisher.subscribe("request/instancecount")
+publisher.subscribe("request/qos", 2)
+publisher.subscribe("request/delay", 2)
+publisher.subscribe("request/instancecount", 2)
 
 print("Waiting for parameters...")
 
-publisher.loop_forever()
 
+publisher.loop_forever()
 
 
 
